@@ -118,17 +118,35 @@ void Filter::onComplete(const Status& status) {
     // verification failed
     Http::Code code =
         status == Status::JwtAudienceNotAllowed ? Http::Code::Forbidden : Http::Code::Unauthorized;
-    // return failure reason as message body
-    decoder_callbacks_->sendLocalReply(
-        code, ::google::jwt_verify::getStatusString(status),
-        [uri = this->original_uri_, status](Http::ResponseHeaderMap& headers) {
-          std::string value = absl::StrCat("Bearer realm=\"", uri, "\"");
-          if (status != Status::JwtMissed) {
-            absl::StrAppend(&value, InvalidTokenErrorString);
-          }
-          headers.setCopy(Http::Headers::get().WWWAuthenticate, value);
-        },
-        absl::nullopt, generateRcDetails(::google::jwt_verify::getStatusString(status)));
+    
+    // Send delayed response on failed JWT Authentication
+    const absl::optional<std::chrono::milliseconds> duration = config_->delay();
+    if (duration.has_value() && duration.value() > std::chrono::milliseconds(0)) {
+      delay_timer_ = decoder_callbacks_->dispatcher().createTimer([this, status, code]() {
+        resetTimerState();
+        decoder_callbacks_->sendLocalReply(code, ::google::jwt_verify::getStatusString(status),
+          [uri = this->original_uri_, status](Http::ResponseHeaderMap& headers) {
+            std::string value = absl::StrCat("Bearer realm=\"", uri, "\"");
+            if (status != Status::JwtMissed) {
+              absl::StrAppend(&value, InvalidTokenErrorString);
+            }
+            headers.setCopy(Http::Headers::get().WWWAuthenticate, value);
+          }, absl::nullopt, generateRcDetails(::google::jwt_verify::getStatusString(status)));
+      });
+      
+      delay_timer_->enableTimer(duration.value());
+      return;
+    }
+
+    // If duration is not initialized, we still need to send a response back
+    decoder_callbacks_->sendLocalReply(code, ::google::jwt_verify::getStatusString(status),
+      [uri = this->original_uri_, status](Http::ResponseHeaderMap& headers) {
+        std::string value = absl::StrCat("Bearer realm=\"", uri, "\"");
+        if (status != Status::JwtMissed) {
+          absl::StrAppend(&value, InvalidTokenErrorString);
+        }
+        headers.setCopy(Http::Headers::get().WWWAuthenticate, value);
+      }, absl::nullopt, generateRcDetails(::google::jwt_verify::getStatusString(status)));
     return;
   }
   stats_.allowed_.inc();
@@ -140,18 +158,26 @@ void Filter::onComplete(const Status& status) {
 
 Http::FilterDataStatus Filter::decodeData(Buffer::Instance&, bool) {
   ENVOY_LOG(debug, "Called Filter : {}", __func__);
-  if (state_ == Calling) {
-    return Http::FilterDataStatus::StopIterationAndWatermark;
+  if (delay_timer_ == nullptr) {
+    if (state_ == Calling) {
+        return Http::FilterDataStatus::StopIterationAndWatermark;
+    }
+    return Http::FilterDataStatus::Continue;
   }
-  return Http::FilterDataStatus::Continue;
+  // If downstream requests in the delay rejection, stop reading new data.
+  return Http::FilterDataStatus::StopIterationNoBuffer;
 }
 
 Http::FilterTrailersStatus Filter::decodeTrailers(Http::RequestTrailerMap&) {
   ENVOY_LOG(debug, "Called Filter : {}", __func__);
-  if (state_ == Calling) {
-    return Http::FilterTrailersStatus::StopIteration;
+  if (delay_timer_ == nullptr) {
+    if (state_ == Calling) {
+      return Http::FilterTrailersStatus::StopIteration;
+    }
+    return Http::FilterTrailersStatus::Continue;
   }
-  return Http::FilterTrailersStatus::Continue;
+  // If downstream requests in the delay rejection, stop reading new data.
+  return Http::FilterTrailersStatus::StopIteration;
 }
 
 void Filter::setDecoderFilterCallbacks(Http::StreamDecoderFilterCallbacks& callbacks) {

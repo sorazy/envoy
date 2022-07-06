@@ -53,6 +53,8 @@ public:
   // Finds the verifier based on per-route config. If fail, pair.second has the error message.
   virtual std::pair<const Verifier*, std::string>
   findPerRouteVerifier(const PerRouteFilterConfig& per_route) const PURE;
+  
+  virtual absl::optional<std::chrono::milliseconds> delay() PURE;
 };
 using FilterConfigSharedPtr = std::shared_ptr<FilterConfig>;
 
@@ -73,6 +75,8 @@ public:
 
   Upstream::ClusterManager& cm() const { return cm_; }
   TimeSource& timeSource() const { return time_source_; }
+
+  absl::optional<std::chrono::milliseconds> delay() override { return delay_; }
 
   // FilterConfig
 
@@ -143,6 +147,8 @@ private:
   // all requirement_names for debug
   std::string all_requirement_names_;
   TimeSource& time_source_;
+  // Used for JWT tarpit on Auth Failure
+  absl::optional<std::chrono::milliseconds> delay_;
 };
 
 } // namespace JwtAuthn

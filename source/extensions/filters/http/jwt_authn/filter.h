@@ -49,6 +49,10 @@ private:
   FilterConfigSharedPtr config_;
   // Verify context for current request.
   ContextSharedPtr context_;
+  // Used for JWT tarpit on Auth Failure
+  void resetTimerState();
+  Event::TimerPtr delay_timer_ = nullptr;
+  
 
   std::string original_uri_;
 };
