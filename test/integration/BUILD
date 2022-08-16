@@ -725,6 +725,7 @@ envoy_cc_test(
         ":http_protocol_integration_lib",
         "//test/integration/filters:backpressure_filter_config_lib",
         "//test/integration/filters:reset_idle_timer_filter_lib",
+        "//test/integration/filters:set_route_filter_lib",
         "//test/test_common:test_time_lib",
         "@envoy_api//envoy/config/bootstrap/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/filters/network/http_connection_manager/v3:pkg_cc_proto",
@@ -1880,6 +1881,8 @@ envoy_cc_test(
         "nofips",
     ],
     deps = envoy_select_enable_http3([
+        "//test/common/config:dummy_config_proto_cc_proto",
+        "//test/extensions/transport_sockets/tls/cert_validator:timed_cert_validator",
         ":http_integration_lib",
         "//source/common/quic:client_connection_factory_lib",
         "//source/common/quic:envoy_quic_client_connection_lib",
@@ -1924,6 +1927,11 @@ envoy_cc_test(
     ],
 )
 
+envoy_proto_library(
+    name = "typed_metadata_integration_proto",
+    srcs = ["typed_metadata_integration_test.proto"],
+)
+
 envoy_cc_test(
     name = "typed_metadata_integration_test",
     srcs = [
@@ -1931,9 +1939,11 @@ envoy_cc_test(
     ],
     deps = [
         ":http_protocol_integration_lib",
+        ":typed_metadata_integration_proto_cc_proto",
         "//source/common/protobuf",
         "//test/integration/filters:listener_typed_metadata_filter_lib",
         "//test/server:utility_lib",
+        "//test/test_common:registry_lib",
         "//test/test_common:utility_lib",
     ],
 )
